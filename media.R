@@ -296,7 +296,7 @@ library(tidyverse)
 library(irr)
 
 # 1) Read combined handcoding results
-handcoding <- read_csv("handcoding_combined.csv")
+handcoding <- read_csv("handcoding_coded.csv")
 
 # 2) Quick structure check
 glimpse(handcoding)
