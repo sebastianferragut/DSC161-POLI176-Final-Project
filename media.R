@@ -89,9 +89,7 @@ all_rows <- all_rows %>%
 
 all_rows
 
-# PROBLEM SET 1 
-
-## 1) Prep clean text field for pre-processing
+## Prep clean text field for pre-processing
 # Prefer CleanText; fall back to RawText if CleanText is missing/blank
 all_rows_for_lda <- all_rows %>%
   mutate(
@@ -103,56 +101,6 @@ all_rows_for_lda <- all_rows %>%
     text_for_model = str_squish(text_for_model)
   ) %>%
   filter(!is.na(text_for_model), nchar(text_for_model) > 0)
-
-# ## 2) Build quanteda corpus
-# corpus_all <- quanteda::corpus(
-#   all_rows_for_lda,
-#   text_field = "text_for_model"
-# )
-# 
-# # Keep some handy document-level vars
-# docvars(corpus_all, "speaker") <- all_rows_for_lda$speaker_inferred %||% all_rows_for_lda$POTUS
-# docvars(corpus_all, "date")    <- all_rows_for_lda$Date
-# docvars(corpus_all, "title")   <- all_rows_for_lda$SpeechTitle
-# docvars(corpus_all, "source")  <- all_rows_for_lda$Source
-# 
-# ## 3) Tokenize + preprocess
-# toks <- tokens(
-#   corpus_all,
-#   remove_punct   = TRUE,
-#   remove_numbers = TRUE,
-#   remove_symbols = TRUE,
-#   remove_url     = TRUE
-# )
-# 
-# # Lowercase
-# toks <- tokens_tolower(toks)
-# 
-# # Stemming 
-# toks <- tokens_wordstem(toks, language = "en")
-# 
-# # Remove stopwords and very short tokens (e.g., 1–2 chars)
-# toks <- tokens_select(
-#   toks,
-#   pattern = stopwords("en"),
-#   selection = "remove"
-# )
-# toks <- tokens_keep(toks, min_nchar = 3)
-# 
-# # Create DFM
-# dfm_all <- dfm(toks)
-# 
-# # Trim rare words (keep terms that appear in >= 5% of documents)
-# dfm_trimmed <- dfm_trim(dfm_all, min_docfreq = 0.05, docfreq_type = "prop")
-# 
-# ## 4) LDA (k = 10 topics)
-# set.seed(135262007)
-# lda_10 <- textmodel_lda(dfm_trimmed, k = 10)
-# 
-# # Top 10 terms per topic
-# lda_terms <- terms(lda_10, 10)
-# lda_terms
-
 
 all_rows_for_lda
 
@@ -376,6 +324,17 @@ table(handcoding_gold$Media_gold, useNA = "ifany")
 # 4) Cross-validate model predictions
 # 5) Assess and report your out of sample precision and recall. [table with precision and recall]
 
+# Sebastian Naive Bayes
+
+
+
+
+# Christina Logistic Models
+
+
+
+
+
 
 ## ==== Sentiment analysis with Quanteda + Lexicoder (LSD2015) ====
 
@@ -458,7 +417,7 @@ cat("\n=== Sentiment by Speaker ===\n")
 print(sent_by_speaker)
 
 ## ==== Media mention frequency by party and speaker ====
-## FOR THIS SECTION, CHANGE Media_final to whatever the variable is 
+## FOR THIS SECTION, CHANGE Media_final to Media_gold
 
 # Overall media mention rate
 cat("\n=== Overall Media Mention Rate ===\n")
