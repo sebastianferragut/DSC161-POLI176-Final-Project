@@ -295,30 +295,29 @@ write_csv(handcoding_set, "handcoding_forcoding.csv")
 library(tidyverse)
 library(irr)
 
-# 1) Read combined handcoding results
+# Read combined handcoding results
 handcoding <- read_csv("handcoding_coded.csv")
 
-# 2) Quick structure check
+# Quick structure check
 glimpse(handcoding)
 summary(handcoding[c("Media1", "Media2")])
 
-# 3) Confusion matrix (cross-tab)
+# Confusion matrix
 conf_mat <- table(handcoding$Media1, handcoding$Media2)
 print(conf_mat)
 
-# Optional: nicer labeled display
+# nicer labeled CM
 addmargins(conf_mat)
 
-# 4) Krippendorff's alpha (nominal scale)
-# irr::kripp.alpha() expects a matrix or data.frame with coders in columns and items in rows
+# Krippendorff's alpha (nominal scale)
 alpha_result <- irr::kripp.alpha(t(handcoding[, c("Media1", "Media2")]))
 print(alpha_result)
 
-# 5) Percent agreement
+# Percent agreement
 agree_pct <- mean(handcoding$Media1 == handcoding$Media2, na.rm = TRUE)
 cat("\nPercent agreement:", round(100 * agree_pct, 1), "%\n")
 
-# 6) Inspect disagreements
+# Inspect disagreements
 disagreements <- handcoding %>%
   filter(Media1 != Media2) %>%
   select(id, paragraph_id, speaker, paragraph_text, Media1, Media2)
@@ -326,14 +325,175 @@ disagreements <- handcoding %>%
 cat("\nNumber of disagreements:", nrow(disagreements), "\n")
 print(disagreements %>% slice_head(n = 10))  # preview first 10
 
-# 7) Agreement by speaker (optional stratified check)
-by_speaker <- handcoding %>%
-  group_by(speaker) %>%
-  summarise(
-    n = n(),
-    agreement = mean(Media1 == Media2, na.rm = TRUE),
-    .groups = "drop"
+# Save full disagreements list
+write_csv(disagreements, "coder_disagreements.csv")
+
+###############################################
+###############################################
+###############################################
+
+# Merge final coder agreements
+library(readr)
+library(dplyr)
+
+# Read in final decisions for disagreements
+coder_agreements <- read_csv("coder_agreements.csv")
+# Expecting columns at least: id, Media3
+
+# Merge into original handcoding data
+handcoding_gold <- handcoding %>%
+  left_join(coder_agreements %>% select(id, Media3), by = "id") %>%
+  mutate(
+    # Gold-standard media variable:
+    # - if Media3 (final decision) exists, use it
+    # - else if coders agreed, use their shared value
+    # - else NA (should be rare if all disagreements resolved)
+    Media_gold = case_when(
+      !is.na(Media3) ~ Media3,
+      Media1 == Media2 ~ Media1,
+      TRUE ~ NA_real_
+    )
   )
-print(by_speaker)
+
+# Optional sanity check
+cat("\n=== Gold-standard coding summary ===\n")
+table(handcoding_gold$Media_gold, useNA = "ifany")
+
+## ==== MODEL / LLM STEP (to be added) ====
+# Here we would:
+# 1) Use `handcoding_gold` (Media_gold) as training data
+# 2) Train a classifier label all paragraphs
+# 3) Produce a fully labeled dataset called `classified_full`
+#
+# Assume that after this step we have:
+#   classified_full
+# with at least:
+#   - paragraph_text
+#   - speaker
+#   - (optionally) id, paragraph_id, date, etc.
+#   - Media_final (gold or model/LLM-assigned media-mention variable)
+
+# 4) Cross-validate model predictions
+# 5) Assess and report your out of sample precision and recall. [table with precision and recall]
 
 
+## ==== Sentiment analysis with Quanteda + Lexicoder (LSD2015) ====
+
+library(quanteda)
+library(quanteda.corpora)  # for data_dictionary_LSD2015
+
+# Ensure party variable in classified_full
+classified_full <- classified_full %>%
+  mutate(
+    party = case_when(
+      speaker %in% c("DonaldTrump", "MikePence") ~ "Republican",
+      speaker %in% c("JoeBiden", "KamalaHarris") ~ "Democrat",
+      TRUE ~ "Other"
+    )
+  )
+
+# Build corpus using paragraph_text
+corpus_full <- corpus(
+  classified_full,
+  text_field = "paragraph_text"
+)
+
+# Attach docvars
+docvars(corpus_full, "speaker") <- classified_full$speaker
+docvars(corpus_full, "party")   <- classified_full$party
+
+# Tokenize and pre-process (light, like your example)
+toks_full <- tokens(
+  corpus_full,
+  remove_punct   = TRUE,
+  remove_numbers = TRUE,
+  remove_symbols = TRUE,
+  remove_url     = TRUE
+)
+
+toks_full <- tokens_tolower(toks_full)
+toks_full <- tokens_select(toks_full, stopwords("en"), selection = "remove")
+
+# Apply Lexicoder Sentiment Dictionary (LSD2015)
+# Use only positive + negative categories (first two elements)
+data_dictionary_LSD2015_pos_neg <- data_dictionary_LSD2015[1:2]
+
+toks_sent <- tokens_lookup(toks_full, dictionary = data_dictionary_LSD2015_pos_neg)
+dfm_sent  <- dfm(toks_sent)
+
+# Attach sentiment scores back to classified_full
+classified_full <- classified_full %>%
+  mutate(
+    sent_pos = as.numeric(dfm_sent[, "positive"]),
+    sent_neg = as.numeric(dfm_sent[, "negative"]),
+    sent_net = sent_pos - sent_neg
+  )
+
+# Summaries by party
+sent_by_party <- classified_full %>%
+  group_by(party) %>%
+  summarise(
+    n_paragraphs = n(),
+    avg_pos      = mean(sent_pos, na.rm = TRUE),
+    avg_neg      = mean(sent_neg, na.rm = TRUE),
+    avg_net      = mean(sent_net, na.rm = TRUE),
+    .groups      = "drop"
+  )
+
+cat("\n=== Sentiment by Party ===\n")
+print(sent_by_party)
+
+# Summaries by speaker
+sent_by_speaker <- classified_full %>%
+  group_by(speaker, party) %>%
+  summarise(
+    n_paragraphs = n(),
+    avg_pos      = mean(sent_pos, na.rm = TRUE),
+    avg_neg      = mean(sent_neg, na.rm = TRUE),
+    avg_net      = mean(sent_net, na.rm = TRUE),
+    .groups      = "drop"
+  )
+
+cat("\n=== Sentiment by Speaker ===\n")
+print(sent_by_speaker)
+
+## ==== Media mention frequency by party and speaker ====
+## FOR THIS SECTION, CHANGE Media_final to whatever the variable is 
+
+# Overall media mention rate
+cat("\n=== Overall Media Mention Rate ===\n")
+overall_media <- classified_full %>%
+  summarise(
+    n_paragraphs   = n(),
+    media_mentions = sum(Media_final == 1, na.rm = TRUE),
+    prop_media     = media_mentions / n_paragraphs
+  )
+print(overall_media)
+
+# By party
+cat("\n=== Media Mentions by Party ===\n")
+media_by_party <- classified_full %>%
+  group_by(party) %>%
+  summarise(
+    n_paragraphs   = n(),
+    media_mentions = sum(Media_final == 1, na.rm = TRUE),
+    prop_media     = media_mentions / n_paragraphs,
+    .groups        = "drop"
+  )
+print(media_by_party)
+
+# By speaker
+cat("\n=== Media Mentions by Speaker ===\n")
+media_by_speaker <- classified_full %>%
+  group_by(speaker, party) %>%
+  summarise(
+    n_paragraphs   = n(),
+    media_mentions = sum(Media_final == 1, na.rm = TRUE),
+    prop_media     = media_mentions / n_paragraphs,
+    .groups        = "drop"
+  )
+print(media_by_speaker)
+
+
+# Visualizations
+#build ggplot visualizations of avg_net by party/speaker.
